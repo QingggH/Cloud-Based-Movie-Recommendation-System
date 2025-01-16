@@ -1,0 +1,103 @@
+name: Autograding Tests
+on:
+  workflow_run:
+    workflows: [Continuous Deploy]
+    types:
+      - completed
+
+  workflow_dispatch: {}
+
+  repository_dispatch: {}
+
+permissions:
+  checks: write
+  actions: read
+  contents: read
+jobs:
+  grade-assignment02:
+    runs-on: ubuntu-latest
+    environment:
+      name: AWS_DEPLOYMENT
+    if: github.actor != 'github-classroom[bot]'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start Grading
+        run: echo "==== Start Grading Assignment02 ===="
+
+      - name: Add SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+      - name: SSH to EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+
+          echo "Connected to EC2 instance"
+          
+          if [ ! -d /tmp/assignment02-grader-result ]; then
+            mkdir /tmp/assignment02-grader-result
+          fi
+          
+          # Check [GET] /v1/healthcheck
+          curl -vvvv -X GET http://localhost:8080/v1/healthcheck > /tmp/assignment02-grader-result/healthcheck-get-result.txt 2>&1 || true
+
+          # Check [POST] /v1/healthcheck
+          curl -vvvv -X POST http://localhost:8080/v1/healthcheck > /tmp/assignment02-grader-result/healthcheck-post-result.txt 2>&1 || true
+
+          # Check [PUT] /v1/healthcheck
+          curl -vvvv -X PUT http://localhost:8080/v1/healthcheck > /tmp/assignment02-grader-result/healthcheck-put-result.txt 2>&1 || true
+
+          # Check [PATCH] /v1/healthcheck
+          curl -vvvv -X PATCH http://localhost:8080/v1/healthcheck > /tmp/assignment02-grader-result/healthcheck-patch-result.txt 2>&1 || true
+
+          # Check [DELETE] /v1/healthcheck
+          curl -vvvv -X DELETE http://localhost:8080/v1/healthcheck > /tmp/assignment02-grader-result/healthcheck-delete-result.txt 2>&1 || true
+
+          # Check with parameters [GET] /v1/healthcheck?name=John
+          curl -vvvv -X GET http://localhost:8080/v1/healthcheck?name=John > /tmp/assignment02-grader-result/healthcheck-get-params-result.txt 2>&1 || true
+          
+          EOF
+
+      - name: Copy Grading Result
+        run: |
+          scp -o StrictHostKeyChecking=no -r ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/assignment02-grader-result ./
+          echo "Grading result copied to local machine"
+
+      - name: Check Ok Status
+        id: check-ok-status
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Check Ok Status
+          command: python3 ./grader/check_ok_status.py
+          timeout: 10
+          max-score: 10
+
+      - name: Check Wrong Method
+        id: check-wrong-method
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Check Wrong Method
+          command: python3 ./grader/check_wrong_method.py
+          timeout: 10
+          max-score: 10
+
+      - name: Check No Parameter
+        id: check-no-parameter
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Check No Parameter
+          command: python3 ./grader/check_no_param.py
+          timeout: 10
+          max-score: 10
+
+      - name: Autograding Reporter
+        uses: classroom-resources/autograding-grading-reporter@v1
+        env:
+          CHECK-OK-STATUS_RESULTS: "${{steps.check-ok-status.outputs.result}}"
+          CHECK-WRONG-METHOD_RESULTS: "${{steps.check-wrong-method.outputs.result}}"
+          CHECK-NO-PARAMETER_RESULTS: "${{steps.check-no-parameter.outputs.result}}"
+        with:
+          runners: check-ok-status,check-wrong-method,check-no-parameter
