@@ -5,10 +5,6 @@ on:
     types:
       - completed
 
-  workflow_dispatch: {}
-
-  repository_dispatch: {}
-
 permissions:
   checks: write
   actions: read
@@ -51,11 +47,11 @@ jobs:
           ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST << 'EOF'
 
           echo "Connected to EC2 instance"
-          
+
           if [ ! -d /tmp/assignment02-grader-result ]; then
             mkdir /tmp/assignment02-grader-result
           fi
-          
+
           # Check [GET] /v1/healthcheck
           curl -vvvv -X GET http://localhost:8080/v1/healthcheck > /tmp/assignment02-grader-result/healthcheck-get-result.txt 2>&1 || true
 
@@ -73,7 +69,7 @@ jobs:
 
           # Check with parameters [GET] /v1/healthcheck?name=John
           curl -vvvv -X GET http://localhost:8080/v1/healthcheck?name=John > /tmp/assignment02-grader-result/healthcheck-get-params-result.txt 2>&1 || true
-          
+
           EOF
 
       - name: Copy Grading Result
@@ -116,3 +112,4 @@ jobs:
           CHECK-NO-PARAMETER_RESULTS: "${{steps.check-no-parameter.outputs.result}}"
         with:
           runners: check-ok-status,check-wrong-method,check-no-parameter
+
