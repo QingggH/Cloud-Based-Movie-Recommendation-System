@@ -1,0 +1,56 @@
+name: Continuous Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  ENVIRONMENT_NAME: "AWS_DEPLOYMENT"
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    # environment: AWS_DEPLOYMENT
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # Step 2: Set up SSH key
+      - name: Set up SSH Key
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+      # Step 3: Configure AWS CLI
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          region: us-west-2 # Change this to your desired AWS region
+
+      # Step 4: Deploy application to EC2
+      - name: Deploy Code to EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@<EC2_PUBLIC_IP> << 'EOF'
+          # Replace the following with your deployment steps
+          cd /path/to/your/app
+          git pull origin main
+          npm install # If you're using a Node.js app
+          npm run build # Or any other build command
+          pm2 restart app # Restart the application
+          EOF
+
+      # Step 5: Confirm Deployment
+      - name: Confirm Deployment
+        run: echo "Application deployed successfully to EC2 instance."
+
+      # Step 6: Add required end workflow steps
+      - name: Notify Deployment Start
+        run: echo "AWS_DEPLOYMENT: Starting deployment."
+
+      - name: Notify Deployment End
+        run: echo "AWS_DEPLOYMENT: Deployment complete."
