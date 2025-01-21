@@ -5,14 +5,14 @@ on:
     branches:
       - main
 
-env:
-  ENVIRONMENT_NAME: "AWS_DEPLOYMENT"
+# env:
+#   ENVIRONMENT_NAME: "AWS_DEPLOYMENT"
 
 jobs:
   deploy:
     name: Deploy to EC2
     runs-on: ubuntu-latest
-    # environment: AWS_DEPLOYMENT
+    environment: AWS_DEPLOYMENT
 
     steps:
       - name: Checkout Code
