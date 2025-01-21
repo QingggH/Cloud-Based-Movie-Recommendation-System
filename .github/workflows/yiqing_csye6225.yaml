@@ -47,10 +47,3 @@ jobs:
       # Step 5: Confirm Deployment
       - name: Confirm Deployment
         run: echo "Application deployed successfully to EC2 instance."
-
-      # Step 6: Add required end workflow steps
-      - name: Notify Deployment Start
-        run: echo "AWS_DEPLOYMENT: Starting deployment."
-
-      - name: Notify Deployment End
-        run: echo "AWS_DEPLOYMENT: Deployment complete."
