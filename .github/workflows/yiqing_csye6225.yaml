@@ -12,10 +12,11 @@ jobs:
     environment: AWS_DEPLOYMENT
 
     steps:
+      # Step 1: Checkout your code from GitHub
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      # Step 2: Set up SSH key
+      # Step 2: Create an SSH key file from GitHub secret
       - name: Create SSH key file
         run: |
           echo "${{ secrets.EC2_SSH_KEY }}" > ec2_key.pem
@@ -27,61 +28,63 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-2 # Change this to your desired AWS region
+          aws-region: us-west-2
 
-      # Step 4: Get EC2 Public IP
+      # Step 4: Fetch the EC2 Public IP
       - name: Get EC2 Public IP
         id: ec2info
         run: |
           INSTANCE_ID=i-039c1f8227270d4e5
-          PUBLIC_IP=$(aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[*].Instances[*].PublicIpAddress' --output text)
+          PUBLIC_IP=$(aws ec2 describe-instances \
+            --instance-ids "$INSTANCE_ID" \
+            --query 'Reservations[*].Instances[*].PublicIpAddress' \
+            --output text)
           echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
 
-      # Step 5: Stop running application and remove old files from EC2
-      - name: Stop running application and remove old files from EC2
+      # Step 5: Stop running Python app and remove old files
+      - name: Stop old application
         run: |
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@$PUBLIC_IP <<EOF
-          # Find and kill the running process
-          pkill -f test.py || true
-
-          # Remove the old application directory
-          rm -rf /home/ubuntu/my_flask_app
-
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.PUBLIC_IP }} <<EOF
+            # Kill the running Python process if any
+            pkill -f test.py || true
+            
+            # Remove old application directory
+            rm -rf /home/ubuntu/my_flask_app
           EOF
-        env:
-          PUBLIC_IP: ${{ env.PUBLIC_IP }}
 
-      # Step 7: Deploy application to EC2
-      - name: Deploy Code to EC2
+      # Step 6: Copy the local code (from GitHub runner) to EC2
+      - name: Copy Code to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@$PUBLIC_IP <<EOF
-          # Update package list and install Python3 and virtualenv
-          sudo apt-get update
-          sudo apt-get install -y python3 python3-venv python3-pip
+          scp -o StrictHostKeyChecking=no -i ec2_key.pem -r ./* ubuntu@${{ env.PUBLIC_IP }}:/home/ubuntu/my_flask_app
 
-          # Create a directory for the application
-          mkdir -p /home/ubuntu/my_flask_app
-          scp -o StrictHostKeyChecking=no -i ec2_key.pem -r ./* ubuntu@$PUBLIC_IP:/home/ubuntu/my_flask_app
-          cd /home/ubuntu/my_flask_app
+      # Step 7: SSH into EC2, install dependencies, and run app
+      - name: Install & Run Application
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.PUBLIC_IP }} <<EOF
+            # Update system packages and install Python
+            sudo apt-get update
+            sudo apt-get install -y python3 python3-venv python3-pip
 
-          # Create and activate virtual environment
-          python3 -m venv venv
-          source venv/bin/activate
+            cd /home/ubuntu/my_flask_app
 
-          # Install dependencies
-          pip install -r requirements.txt
+            # Create and activate a virtual environment
+            python3 -m venv venv
+            source venv/bin/activate
 
-          # Run the test.py file
-          nohup python3 test.py > test.log 2>&1 &
+            # Install dependencies
+            pip install -r requirements.txt
+
+            # Run the Python script in background
+            nohup python3 test.py > test.log 2>&1 &
           EOF
-        env:
-          PUBLIC_IP: ${{ env.PUBLIC_IP }}
 
+      # Step 8: Create environment file for the grader
       - name: Setup Variables for Grader Workflow
         run: |
           echo "SSH_HOST=${{ env.PUBLIC_IP }}" > grader-env.txt
           echo "SSH_USER=ubuntu" >> grader-env.txt
 
+      # Step 9: Upload the environment file as an artifact
       - name: Upload Grader Environment Variables
         uses: actions/upload-artifact@v4
         with:
