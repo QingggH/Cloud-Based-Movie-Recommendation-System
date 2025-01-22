@@ -41,7 +41,7 @@ jobs:
       - name: Remove old files from EC2
         run: |
           ssh -o StrictHostKeyChecking=no ubuntu@$PUBLIC_IP <<EOF
-          rm -rf /home/ubuntu/my_flask_app/*
+          rm -rf /home/ubuntu/my_flask_app
           EOF
         env:
           PUBLIC_IP: ${{ env.PUBLIC_IP }}
@@ -49,7 +49,7 @@ jobs:
       # Step 6: Copy files to EC2
       - name: Copy files to EC2
         run: |
-          scp -o StrictHostKeyChecking=no test.py requirements.txt ubuntu@$PUBLIC_IP:/home/ubuntu/my_flask_app/
+          scp -o StrictHostKeyChecking=no -r ./* ubuntu@$PUBLIC_IP:/home/ubuntu/my_flask_app
 
       # Step 7: Deploy application to EC2
       - name: Deploy Code to EC2
