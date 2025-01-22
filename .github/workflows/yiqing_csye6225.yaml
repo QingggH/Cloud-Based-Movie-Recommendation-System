@@ -59,8 +59,8 @@ jobs:
           # Install dependencies
           pip install -r requirements.txt
 
-          # Restart the Flask application service
-          sudo systemctl restart your_flask_app.service
+          # Run the test.py file
+          nohup python3 test.py > test.log 2>&1 &
           EOF
         env:
           PUBLIC_IP: ${{ env.PUBLIC_IP }}
