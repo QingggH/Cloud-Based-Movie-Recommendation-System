@@ -40,7 +40,7 @@ jobs:
       # Step 5: Deploy application to EC2
       - name: Deploy Code to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@$PUBLIC_IP <<EOF
+          ssh -o StrictHostKeyChecking=no ubuntu@$PUBLIC_IP <<EOF
           # Create a directory for the application
           mkdir -p /home/ubuntu/my_flask_app
           cd /home/ubuntu/my_flask_app
