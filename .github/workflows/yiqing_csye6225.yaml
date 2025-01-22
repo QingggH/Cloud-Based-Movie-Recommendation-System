@@ -46,6 +46,7 @@ jobs:
 
           # Remove the old application directory
           rm -rf /home/ubuntu/my_flask_app
+
           EOF
         env:
           PUBLIC_IP: ${{ env.PUBLIC_IP }}
@@ -60,8 +61,8 @@ jobs:
 
           # Create a directory for the application
           mkdir -p /home/ubuntu/my_flask_app
-          cd /home/ubuntu/my_flask_app
           scp -o StrictHostKeyChecking=no -r ./* ubuntu@$PUBLIC_IP:/home/ubuntu/my_flask_app
+          cd /home/ubuntu/my_flask_app
 
           # Create and activate virtual environment
           python3 -m venv venv
