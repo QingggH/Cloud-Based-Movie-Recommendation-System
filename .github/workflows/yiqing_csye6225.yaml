@@ -41,12 +41,17 @@ jobs:
       - name: Deploy Code to EC2
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@$PUBLIC_IP <<EOF
-          # Replace the following with your deployment steps
-          cd /path/to/your/app
+          # Create a directory for the application
+          mkdir -p /home/ubuntu/my_flask_app
+          cd /home/ubuntu/my_flask_app
+          # Pull the latest code
           git pull origin main
-          source venv/bin/activate # Activate virtual environment
-          pip install -r requirements.txt # Install dependencies
-          sudo systemctl restart your_flask_app.service # Restart the Flask application service
+          # Activate virtual environment
+          source venv/bin/activate
+          # Install dependencies
+          pip install -r requirements.txt
+          # Restart the Flask application service
+          sudo systemctl restart your_flask_app.service
           EOF
         env:
           PUBLIC_IP: ${{ env.PUBLIC_IP }}
