@@ -37,19 +37,18 @@ jobs:
           PUBLIC_IP=$(aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[*].Instances[*].PublicIpAddress' --output text)
           echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
 
-      # Step 5: Remove old files from EC2
-      - name: Remove old files from EC2
+      # Step 5: Stop running application and remove old files from EC2
+      - name: Stop running application and remove old files from EC2
         run: |
           ssh -o StrictHostKeyChecking=no ubuntu@$PUBLIC_IP <<EOF
+          # Find and kill the running process
+          pkill -f test.py || true
+
+          # Remove the old application directory
           rm -rf /home/ubuntu/my_flask_app
           EOF
         env:
           PUBLIC_IP: ${{ env.PUBLIC_IP }}
-
-      # Step 6: Copy files to EC2
-      - name: Copy files to EC2
-        run: |
-          scp -o StrictHostKeyChecking=no -r ./* ubuntu@$PUBLIC_IP:/home/ubuntu/my_flask_app
 
       # Step 7: Deploy application to EC2
       - name: Deploy Code to EC2
@@ -62,6 +61,7 @@ jobs:
           # Create a directory for the application
           mkdir -p /home/ubuntu/my_flask_app
           cd /home/ubuntu/my_flask_app
+          scp -o StrictHostKeyChecking=no -r ./* ubuntu@$PUBLIC_IP:/home/ubuntu/my_flask_app
 
           # Create and activate virtual environment
           python3 -m venv venv
