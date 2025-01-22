@@ -65,6 +65,13 @@ jobs:
         env:
           PUBLIC_IP: ${{ env.PUBLIC_IP }}
 
-      # Step 6: Confirm Deployment
-      - name: Confirm Deployment
-        run: echo "Application deployed successfully to EC2 instance."
+      - name: Setup Variables for Grader Workflow
+        run: |
+          echo "SSH_HOST=${{ env.PUBLIC_IP }}" > grader-env.txt
+          echo "SSH_USER=ubuntu" >> grader-env.txt
+
+      - name: Upload Grader Environment Variables
+        uses: actions/upload-artifact@v4
+        with:
+          name: grader-env
+          path: grader-env.txt
