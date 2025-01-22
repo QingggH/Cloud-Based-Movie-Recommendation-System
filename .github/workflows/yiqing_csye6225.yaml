@@ -5,9 +5,6 @@ on:
     branches:
       - main
 
-# env:
-#   ENVIRONMENT_NAME: "AWS_DEPLOYMENT"
-
 jobs:
   deploy:
     name: Deploy to EC2
@@ -32,10 +29,18 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2 # Change this to your desired AWS region
 
-      # Step 4: Deploy application to EC2
+      # Step 4: Get EC2 Public IP
+      - name: Get EC2 Public IP
+        id: ec2info
+        run: |
+          INSTANCE_ID=i-039c1f8227270d4e5
+          PUBLIC_IP=$(aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[*].Instances[*].PublicIpAddress' --output text)
+          echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
+
+      # Step 5: Deploy application to EC2
       - name: Deploy Code to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@<EC2_PUBLIC_IP> << 'EOF'
+          ssh -o StrictHostKeyChecking=no ec2-user@$PUBLIC_IP <<EOF
           # Replace the following with your deployment steps
           cd /path/to/your/app
           git pull origin main
@@ -43,7 +48,9 @@ jobs:
           npm run build # Or any other build command
           pm2 restart app # Restart the application
           EOF
+        env:
+          PUBLIC_IP: ${{ env.PUBLIC_IP }}
 
-      # Step 5: Confirm Deployment
+      # Step 6: Confirm Deployment
       - name: Confirm Deployment
         run: echo "Application deployed successfully to EC2 instance."
