@@ -16,10 +16,10 @@ jobs:
         uses: actions/checkout@v3
 
       # Step 2: Set up SSH key
-      - name: Set up SSH Key
-        uses: webfactory/ssh-agent@v0.7.0
-        with:
-          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+      - name: Create SSH key file
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > ec2_key.pem
+          chmod 600 ec2_key.pem
 
       # Step 3: Configure AWS CLI
       - name: Configure AWS Credentials
@@ -40,7 +40,7 @@ jobs:
       # Step 5: Stop running application and remove old files from EC2
       - name: Stop running application and remove old files from EC2
         run: |
-          ssh -o StrictHostKeyChecking=no ubuntu@$PUBLIC_IP <<EOF
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@$PUBLIC_IP <<EOF
           # Find and kill the running process
           pkill -f test.py || true
 
@@ -54,14 +54,14 @@ jobs:
       # Step 7: Deploy application to EC2
       - name: Deploy Code to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no ubuntu@$PUBLIC_IP <<EOF
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@$PUBLIC_IP <<EOF
           # Update package list and install Python3 and virtualenv
           sudo apt-get update
           sudo apt-get install -y python3 python3-venv python3-pip
 
           # Create a directory for the application
           mkdir -p /home/ubuntu/my_flask_app
-          scp -o StrictHostKeyChecking=no -r ./* ubuntu@$PUBLIC_IP:/home/ubuntu/my_flask_app
+          scp -o StrictHostKeyChecking=no -i ec2_key.pem -r ./* ubuntu@$PUBLIC_IP:/home/ubuntu/my_flask_app
           cd /home/ubuntu/my_flask_app
 
           # Create and activate virtual environment
