@@ -44,9 +44,9 @@ jobs:
           # Replace the following with your deployment steps
           cd /path/to/your/app
           git pull origin main
-          npm install # If you're using a Node.js app
-          npm run build # Or any other build command
-          pm2 restart app # Restart the application
+          source venv/bin/activate # Activate virtual environment
+          pip install -r requirements.txt # Install dependencies
+          sudo systemctl restart your_flask_app.service # Restart the Flask application service
           EOF
         env:
           PUBLIC_IP: ${{ env.PUBLIC_IP }}
