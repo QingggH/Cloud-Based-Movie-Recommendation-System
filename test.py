@@ -1,26 +1,27 @@
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, jsonify, make_response, request
 
 app = Flask(__name__)
 
+# Add no-cache headers to responses
 @app.after_request
-def add_no_cache_header(response):
-    response.headers["Cache-Control"] = "no-cache"
+def set_cache_control(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
 
+# Health check route
 @app.route("/v1/healthcheck", methods=["GET"])
-def healthcheck():
-    if request.args or request.form:
+def check_health():
+    if request.values:  
         return make_response(jsonify({"error": "Bad Request"}), 400)
 
-    return make_response(jsonify({"status": "OK"}), 200)
+    return jsonify({"status": "OK"}), 200
 
-@app.errorhandler(404)
-def not_found(e):
-    return make_response(jsonify({"error": "Bad Request"}), 400)
+# Global error handler
+def handle_bad_request(error):
+    return jsonify({"error": "Bad Request"}), 400
 
-@app.errorhandler(405)
-def method_not_allowed(e):
-    return make_response(jsonify({"error": "Bad Request"}), 400)
+app.register_error_handler(404, handle_bad_request)
+app.register_error_handler(405, handle_bad_request)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
