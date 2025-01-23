@@ -1,10 +1,10 @@
 # Project Deployment to EC2
 
-- **Name:** <Yiqing Huang>
-- **EC2 Instance Type:** <t2.micro>
-- **OS:** <Ubuntu>
-- **Programming Language:** <Python 3.13.1>
-- **Web Server Framework Used:** <Flask>
+- **Name:** Yiqing Huang
+- **EC2 Instance Type:** t2.micro
+- **OS:** Ubuntu
+- **Programming Language:** Python 3.13.1
+- **Web Server Framework Used:** Flask
 - **Build and Deploy instruction:**
 
   1. **Checkout Code**  
