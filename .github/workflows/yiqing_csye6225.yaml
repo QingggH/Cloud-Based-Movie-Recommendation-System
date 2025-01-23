@@ -12,7 +12,7 @@ jobs:
     environment: AWS_DEPLOYMENT
 
     steps:
-      # Step 1: Checkout your code from GitHub
+      # Step 1: Checkout my code from GitHub
       - name: Checkout Code
         uses: actions/checkout@v3
 
@@ -29,6 +29,7 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2
+
       # Step 4: Check EC2 Instance State
       - name: Check EC2 Instance State
         id: check_state
@@ -47,6 +48,7 @@ jobs:
           aws ec2 start-instances --instance-ids i-039c1f8227270d4e5
           echo "Waiting for EC2 instance to start..."
           aws ec2 wait instance-running --instance-ids i-039c1f8227270d4e5
+
       # Step 6: Fetch the EC2 Public IP
       - name: Get EC2 Public IP
         id: ec2info
@@ -58,7 +60,7 @@ jobs:
             --output text)
           echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
 
-      # Step 7: Stop running Python app and remove old files
+      # Step 7: Stop running the previous app and remove old files
       - name: Stop old application
         run: |
           ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.PUBLIC_IP }} <<EOF
@@ -69,7 +71,7 @@ jobs:
             rm -rf /home/ubuntu/my_flask_app
           EOF
 
-      # Step 8: Copy the local code (from GitHub runner) to EC2
+      # Step 8: Copy the local code to EC2
       - name: Copy Code to EC2
         run: |
           scp -o StrictHostKeyChecking=no -i ec2_key.pem -r ./* ubuntu@${{ env.PUBLIC_IP }}:/home/ubuntu/my_flask_app
