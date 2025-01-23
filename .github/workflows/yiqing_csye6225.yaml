@@ -29,8 +29,25 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2
+      # Step 4: Check EC2 Instance State
+      - name: Check EC2 Instance State
+        id: check_state
+        run: |
+          INSTANCE_ID=i-039c1f8227270d4e5
+          INSTANCE_STATE=$(aws ec2 describe-instances \
+            --instance-ids "$INSTANCE_ID" \
+            --query 'Reservations[*].Instances[*].State.Name' \
+            --output text)
+          echo "INSTANCE_STATE=$INSTANCE_STATE" >> $GITHUB_ENV
 
-      # Step 4: Fetch the EC2 Public IP
+      # Step 5: Start EC2 Instance if it is stopped
+      - name: Start EC2 Instance (if stopped)
+        if: env.INSTANCE_STATE == 'stopped'
+        run: |
+          aws ec2 start-instances --instance-ids i-039c1f8227270d4e5
+          echo "Waiting for EC2 instance to start..."
+          aws ec2 wait instance-running --instance-ids i-039c1f8227270d4e5
+      # Step 6: Fetch the EC2 Public IP
       - name: Get EC2 Public IP
         id: ec2info
         run: |
@@ -41,7 +58,7 @@ jobs:
             --output text)
           echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
 
-      # Step 5: Stop running Python app and remove old files
+      # Step 7: Stop running Python app and remove old files
       - name: Stop old application
         run: |
           ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.PUBLIC_IP }} <<EOF
@@ -52,12 +69,12 @@ jobs:
             rm -rf /home/ubuntu/my_flask_app
           EOF
 
-      # Step 6: Copy the local code (from GitHub runner) to EC2
+      # Step 8: Copy the local code (from GitHub runner) to EC2
       - name: Copy Code to EC2
         run: |
           scp -o StrictHostKeyChecking=no -i ec2_key.pem -r ./* ubuntu@${{ env.PUBLIC_IP }}:/home/ubuntu/my_flask_app
 
-      # Step 7: SSH into EC2, install dependencies, and run app
+      # Step 9: SSH into EC2, install dependencies, and run app
       - name: Install & Run Application
         run: |
           ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.PUBLIC_IP }} <<EOF
@@ -78,13 +95,13 @@ jobs:
             nohup python3 test.py > test.log 2>&1 &
           EOF
 
-      # Step 8: Create environment file for the grader
+      # Step 10: Create environment file for the grader
       - name: Setup Variables for Grader Workflow
         run: |
           echo "SSH_HOST=${{ env.PUBLIC_IP }}" > grader-env.txt
           echo "SSH_USER=ubuntu" >> grader-env.txt
 
-      # Step 9: Upload the environment file as an artifact
+      # Step 11: Upload the environment file as an artifact
       - name: Upload Grader Environment Variables
         uses: actions/upload-artifact@v4
         with:
