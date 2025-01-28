@@ -10,3 +10,6 @@ def check_status_code(content: str, expected_status_code: int) -> bool:
 
 def check_contains_no_cache_header(content: str) -> bool:
   return "Cache-Control: No-Cache" in content or "Cache-Control: no-cache" in content or "cache-control: no-cache" in content or "cache-control: no cache" in content
+
+def check_contains_target_string(content: str, target_string: str) -> bool:
+  return target_string in content
