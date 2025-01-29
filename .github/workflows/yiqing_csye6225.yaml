@@ -10,105 +10,92 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to EC2
+    name: Deploy CloudFormation and Start EC2
     runs-on: ubuntu-latest
     environment: AWS_DEPLOYMENT
 
     steps:
-      # Step 1: Checkout my code from GitHub
+      # Step 1: Checkout the code
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      # Step 2: Create an SSH key file from GitHub secret
-      - name: Create SSH key file
-        run: |
-          echo "${{ secrets.EC2_SSH_KEY }}" > ec2_key.pem
-          chmod 600 ec2_key.pem
-
-      # Step 3: Configure AWS CLI
-      - name: Configure AWS Credentials
+      # Step 2: Configure AWS CLI
+      - name: Configure AWS CLI
         uses: aws-actions/configure-aws-credentials@v3
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2
 
-      # Step 4: Check EC2 Instance State
-      - name: Check EC2 Instance State
-        id: check_state
+      # Step 3: Deploy CloudFormation Stack
+      - name: Deploy CloudFormation Stack
         run: |
-          INSTANCE_ID=i-039c1f8227270d4e5
-          INSTANCE_STATE=$(aws ec2 describe-instances \
-            --instance-ids "$INSTANCE_ID" \
-            --query 'Reservations[*].Instances[*].State.Name' \
+          aws cloudformation deploy \
+            --template-file vpc-template.yaml \
+            --stack-name MyVPCStack \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              WebAppKeyName=${{ secrets.EC2_KEY_NAME }} \
+              MySQLKeyName=${{ secrets.EC2_KEY_NAME }}
+
+      # Step 4: Get EC2 Instance Public and Private IPs
+      - name: Get EC2 Instance Info
+        run: |
+          WEBAPP_INSTANCE_ID=$(aws cloudformation describe-stack-resources \
+            --stack-name MyVPCStack \
+            --query "StackResources[?LogicalResourceId=='WebAppEC2Instance'].PhysicalResourceId" \
             --output text)
-          echo "INSTANCE_STATE=$INSTANCE_STATE" >> $GITHUB_ENV
 
-      # Step 5: Start EC2 Instance if it is stopped
-      - name: Start EC2 Instance (if stopped)
-        if: env.INSTANCE_STATE == 'stopped'
-        run: |
-          aws ec2 start-instances --instance-ids i-039c1f8227270d4e5
-          echo "Waiting for EC2 instance to start..."
-          aws ec2 wait instance-running --instance-ids i-039c1f8227270d4e5
+          MYSQL_INSTANCE_ID=$(aws cloudformation describe-stack-resources \
+            --stack-name MyVPCStack \
+            --query "StackResources[?LogicalResourceId=='MySQLEC2Instance'].PhysicalResourceId" \
+            --output text)
 
-      # Step 6: Fetch the EC2 Public IP
-      - name: Get EC2 Public IP
-        id: ec2info
-        run: |
-          INSTANCE_ID=i-039c1f8227270d4e5
-          PUBLIC_IP=$(aws ec2 describe-instances \
-            --instance-ids "$INSTANCE_ID" \
+          WEBAPP_PUBLIC_IP=$(aws ec2 describe-instances \
+            --instance-ids $WEBAPP_INSTANCE_ID \
             --query 'Reservations[*].Instances[*].PublicIpAddress' \
             --output text)
-          echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
 
-      # Step 7: Stop running the previous app and remove old files
-      - name: Stop old application
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.PUBLIC_IP }} <<EOF
-            # Kill the running Python process if any
-            pkill -f test.py || true
-            
-            # Remove old application directory
-            rm -rf /home/ubuntu/my_flask_app
-          EOF
+          MYSQL_PRIVATE_IP=$(aws ec2 describe-instances \
+            --instance-ids $MYSQL_INSTANCE_ID \
+            --query 'Reservations[*].Instances[*].PrivateIpAddress' \
+            --output text)
 
-      # Step 8: Copy the local code to EC2
-      - name: Copy Code to EC2
-        run: |
-          scp -o StrictHostKeyChecking=no -i ec2_key.pem -r ./* ubuntu@${{ env.PUBLIC_IP }}:/home/ubuntu/my_flask_app
+          echo "WEBAPP_PUBLIC_IP=$WEBAPP_PUBLIC_IP" >> $GITHUB_ENV
+          echo "MYSQL_PRIVATE_IP=$MYSQL_PRIVATE_IP" >> $GITHUB_ENV
 
-      # Step 9: SSH into EC2, install dependencies, and run app
-      - name: Install & Run Application
+      # Step 5: Deploy WebApp Code
+      - name: Deploy WebApp to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.PUBLIC_IP }} <<EOF
-            # Update system packages and install Python
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.WEBAPP_PUBLIC_IP }} <<EOF
             sudo apt-get update
             sudo apt-get install -y python3 python3-venv python3-pip
-
-            cd /home/ubuntu/my_flask_app
-
-            # Create and activate a virtual environment
+            rm -rf /home/ubuntu/webapp
+            mkdir -p /home/ubuntu/webapp
+          EOF
+          scp -o StrictHostKeyChecking=no -i ec2_key.pem -r ./* ubuntu@${{ env.WEBAPP_PUBLIC_IP }}:/home/ubuntu/webapp
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.WEBAPP_PUBLIC_IP }} <<EOF
+            cd /home/ubuntu/webapp
             python3 -m venv venv
             source venv/bin/activate
-
-            # Install dependencies
             pip install -r requirements.txt
-
-            # Run the Python script in background
-            nohup python3 test.py > test.log 2>&1 &
+            nohup python3 app.py > app.log 2>&1 &
           EOF
 
-      # Step 10: Create environment file for the grader
-      - name: Setup Variables for Grader Workflow
+      # Step 6: Populate MySQL Database
+      - name: Populate MySQL Database
         run: |
-          echo "SSH_HOST=${{ env.PUBLIC_IP }}" > grader-env.txt
-          echo "SSH_USER=ubuntu" >> grader-env.txt
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.WEBAPP_PUBLIC_IP }} <<EOF
+            cd /home/ubuntu/webapp
+            python3 movies_ingest.py --host ${MYSQL_PRIVATE_IP} --user <YourUser> --password <YourPassword> --database recommend --file movies.csv
+          EOF
 
-      # Step 11: Upload the environment file as an artifact
-      - name: Upload Grader Environment Variables
-        uses: actions/upload-artifact@v4
-        with:
-          name: grader-env
-          path: grader-env.txt
+      # Step 7: Healthcheck
+      - name: Run Healthcheck
+        run: |
+          curl -f http://${{ env.WEBAPP_PUBLIC_IP }}/v1/healthcheck || exit 1
+
+      # Step 8: Output Info
+      - name: Output Deployment Info
+        run: |
+          echo "WebApp deployed successfully at http://${{ env.WEBAPP_PUBLIC_IP }}"
