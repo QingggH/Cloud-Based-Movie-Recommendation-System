@@ -31,7 +31,7 @@ jobs:
       - name: Deploy CloudFormation Stack
         run: |
           aws cloudformation deploy \
-            --template-file vpc-template.yaml \
+            --template-file vpc.yaml \
             --stack-name MyVPCStack \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
