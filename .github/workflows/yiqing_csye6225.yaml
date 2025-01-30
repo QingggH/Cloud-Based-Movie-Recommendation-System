@@ -1,5 +1,5 @@
 name: Continuous Deploy
-#
+
 on:
   push:
     branches:
@@ -10,92 +10,167 @@ on:
 
 jobs:
   deploy:
-    name: Deploy CloudFormation and Start EC2
     runs-on: ubuntu-latest
     environment: AWS_DEPLOYMENT
 
     steps:
-      # Step 1: Checkout the code
-      - name: Checkout Code
-        uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      # Step 2: Configure AWS CLI
-      - name: Configure AWS CLI
-        uses: aws-actions/configure-aws-credentials@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2
-      #
-      # Step 3: Deploy CloudFormation Stack
-      - name: Deploy CloudFormation Stack
+
+      - name: Delete existing stack
         run: |
-          aws cloudformation deploy \
-            --template-file vpc.yaml \
-            --stack-name MyVPCStack \
-            --capabilities CAPABILITY_NAMED_IAM \
-            --parameter-overrides \
-              WebAppKeyName=${{ secrets.EC2_KEY_NAME }} \
-              MySQLKeyName=${{ secrets.EC2_KEY_NAME }}
+          aws cloudformation describe-stacks --stack-name vpc && \
+          aws cloudformation delete-stack --stack-name vpc && \
+          aws cloudformation wait stack-delete-complete --stack-name vpc || \
+          echo "No existing stack to delete."
 
-      # Step 4: Get EC2 Instance Public and Private IPs
-      - name: Get EC2 Instance Info
+      - name: Deploy CloudFormation Stack, Create VPC and Subnets
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
         run: |
-          WEBAPP_INSTANCE_ID=$(aws cloudformation describe-stack-resources \
-            --stack-name MyVPCStack \
-            --query "StackResources[?LogicalResourceId=='WebAppEC2Instance'].PhysicalResourceId" \
-            --output text)
+          aws cloudformation create-stack \
+            --stack-name vpc \
+            --template-body file://vpc.yaml \
+            --parameters \
+              ParameterKey=DBUser,ParameterValue=$DB_USER \
+              ParameterKey=DBPassword,ParameterValue=$DB_PASSWORD \
+              ParameterKey=DBName,ParameterValue=$DB_NAME \
+            --capabilities CAPABILITY_NAMED_IAM
 
-          MYSQL_INSTANCE_ID=$(aws cloudformation describe-stack-resources \
-            --stack-name MyVPCStack \
-            --query "StackResources[?LogicalResourceId=='MySQLEC2Instance'].PhysicalResourceId" \
-            --output text)
-
-          WEBAPP_PUBLIC_IP=$(aws ec2 describe-instances \
-            --instance-ids $WEBAPP_INSTANCE_ID \
-            --query 'Reservations[*].Instances[*].PublicIpAddress' \
-            --output text)
-
-          MYSQL_PRIVATE_IP=$(aws ec2 describe-instances \
-            --instance-ids $MYSQL_INSTANCE_ID \
-            --query 'Reservations[*].Instances[*].PrivateIpAddress' \
-            --output text)
-
-          echo "WEBAPP_PUBLIC_IP=$WEBAPP_PUBLIC_IP" >> $GITHUB_ENV
-          echo "MYSQL_PRIVATE_IP=$MYSQL_PRIVATE_IP" >> $GITHUB_ENV
-
-      # Step 5: Deploy WebApp Code
-      - name: Deploy WebApp to EC2
+      - name: Wait for stack creation to complete
         run: |
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.WEBAPP_PUBLIC_IP }} <<EOF
+          aws cloudformation wait stack-create-complete --stack-name vpc
+
+      - name: Get stack outputs
+        id: get-outputs
+        run: |
+          aws cloudformation describe-stacks --stack-name vpc --query "Stacks[0].Outputs" > stack-outputs.json
+          cat stack-outputs.json
+
+      - name: Extract WebApp Public IP and Database Private IP
+        id: extract_ips
+        run: |
+          WEBAPP_PUBLIC_IP=$(jq -r '.[] | select(.OutputKey=="WebAppPublicIP") | .OutputValue' stack-outputs.json)
+          DATABASE_PRIVATE_IP=$(jq -r '.[] | select(.OutputKey=="DatabasePrivateIP") | .OutputValue' stack-outputs.json)
+          echo "WebApp Public IP: $WEBAPP_PUBLIC_IP"
+          echo "Database Private IP: $DATABASE_PRIVATE_IP"
+          echo "PUBLIC_IP=$WEBAPP_PUBLIC_IP" >> $GITHUB_ENV
+          echo "DATABASE_PRIVATE_IP=$DATABASE_PRIVATE_IP" >> $GITHUB_ENV
+
+      - name: Use WebApp Public IP and Database Private IP
+        run: |
+          echo "The WebApp Public IP is ${{ env.PUBLIC_IP }}"
+          echo "The Database Private IP is ${{ env.DATABASE_PRIVATE_IP }}"
+
+      - name: Setup environment on EC2
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SSH_HOST: ${{ env.PUBLIC_IP }}
+          SSH_USER: ${{ vars.SSH_USER }}
+        run: |
+          echo "Copy SSH key to runner"
+          echo "$EC2_SSH_KEY" > ec2_key.pem
+          chmod 600 ec2_key.pem
+
+          echo "Copying all files from root to EC2..."
+          scp -o StrictHostKeyChecking=no -i ec2_key.pem -r ./* $SSH_USER@$SSH_HOST:/home/ubuntu/app/
+
+          echo "Setting up environment on EC2..."
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem $SSH_USER@$SSH_HOST << 'EOF'
+            echo "Changing to app directory..."
+            cd /home/ubuntu/app
+
+            echo "Installing necessary packages..."
             sudo apt-get update
-            sudo apt-get install -y python3 python3-venv python3-pip
-            rm -rf /home/ubuntu/webapp
-            mkdir -p /home/ubuntu/webapp
-          EOF
-          scp -o StrictHostKeyChecking=no -i ec2_key.pem -r ./* ubuntu@${{ env.WEBAPP_PUBLIC_IP }}:/home/ubuntu/webapp
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.WEBAPP_PUBLIC_IP }} <<EOF
-            cd /home/ubuntu/webapp
+            sudo apt-get install -y python3-venv python3-pip
+
+            echo "Creating and activating virtual environment..."
             python3 -m venv venv
             source venv/bin/activate
+
+            echo "Installing required Python packages..."
             pip install -r requirements.txt
-            nohup python3 app.py > app.log 2>&1 &
+
+            echo "Setup completed."
           EOF
 
-      # Step 6: Populate MySQL Database
-      - name: Populate MySQL Database
+      - name: Create and copy .env file to EC2
+        env:
+          SSH_HOST: ${{ env.PUBLIC_IP }}
+          SSH_USER: ${{ vars.SSH_USER }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
         run: |
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.WEBAPP_PUBLIC_IP }} <<EOF
-            cd /home/ubuntu/webapp
-            python3 movies_ingest.py --host ${MYSQL_PRIVATE_IP} --user <YourUser> --password <YourPassword> --database recommend --file movies.csv
+          echo "Creating .env file..."
+          echo "DB_HOST=${{ env.DATABASE_PRIVATE_IP }}" > .env
+          echo "DB_USER=${{ env.DB_USER }}" >> .env
+          echo "DB_PASSWORD=${{ env.DB_PASSWORD }}" >> .env
+          echo "DB_NAME=${{ env.DB_NAME }}" >> .env
+          cat .env
+
+          echo "Copying .env file to EC2..."
+          scp -o StrictHostKeyChecking=no -i ec2_key.pem .env $SSH_USER@$SSH_HOST:/home/ubuntu/app/
+
+      - name: Ingest movies data
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SSH_HOST: ${{ env.PUBLIC_IP }}
+          SSH_USER: ${{ vars.SSH_USER }}
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem $SSH_USER@$SSH_HOST << 'EOF'
+            echo "Changing to app directory..."
+            cd /home/ubuntu/app
+
+            echo "Activating virtual environment..."
+            source venv/bin/activate
+
+            echo "Running ingestion script..."
+            python movies_ingest.py
+
+            echo "Ingestion completed."
           EOF
 
-      # Step 7: Healthcheck
-      - name: Run Healthcheck
+      - name: launch Web App to EC2
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SSH_HOST: ${{ env.PUBLIC_IP }}
+          SSH_USER: ${{ vars.SSH_USER }}
         run: |
-          curl -f http://${{ env.WEBAPP_PUBLIC_IP }}/v1/healthcheck || exit 1
+          echo "Starting Flask app..."
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem $SSH_USER@$SSH_HOST << 'EOF'
+            echo "Changing to app directory..."
+            cd /home/ubuntu/app
 
-      # Step 8: Output Info
-      - name: Output Deployment Info
+            echo "Activating virtual environment..."
+            source venv/bin/activate
+
+            nohup python movie_app.py > app.log 2>&1 &
+            exit
+          EOF
+
+      - name: Setup Variables for Grader Workflow
         run: |
-          echo "WebApp deployed successfully at http://${{ env.WEBAPP_PUBLIC_IP }}"
+          echo "SSH_HOST=${{ env.PUBLIC_IP }}" > grader-env.txt
+          echo "SSH_USER=${{ vars.SSH_USER }}" >> grader-env.txt
+          echo "WEBAPP_HOST=${{ env.PUBLIC_IP }}" > grader-env.txt
+          echo "WEBAPP_USER=${{ vars.SSH_USER }}" >> grader-env.txt
+          echo "MYSQL_PRIVATE_IP=${{ env.DATABASE_PRIVATE_IP }}" >> grader-env.txt
+          echo "DATABASE_USER_NAME=${{ secrets.DB_USER }}" >> grader-env.txt
+          echo "DATABASE_PASSWORD=${{ secrets.DB_PASSWORD }}" >> grader-env.txt
+          echo "MOVIE_INGEST_COMMAND=./run_ingestion.sh" >> grader-env.txt
+
+      - name: Upload Grader Environment Variables
+        uses: actions/upload-artifact@v4
+        with:
+          name: grader-env
+          path: grader-env.txt

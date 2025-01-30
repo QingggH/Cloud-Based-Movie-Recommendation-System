@@ -1,11 +1,16 @@
 import mysql.connector
+import os
+from dotenv import load_dotenv
 
-# 数据库配置
+# 加载 .env 文件
+load_dotenv()
+
+# 数据库配置，从环境变量中获取
 DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': 'hyq200066',  
-    'database': 'recommend'
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'user': os.getenv('DB_USER', 'root'),
+    'password': os.getenv('DB_PASSWORD', ''),  
+    'database': os.getenv('DB_NAME', 'recommend')
 }
 
 def get_connection():
@@ -16,14 +21,14 @@ def initialize_database():
 
     # 连接 MySQL 默认数据库（避免尝试连接 recommend 而报错）
     connection = mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="hyq200066"  
+        host=os.getenv('DB_HOST', 'localhost'),
+        user=os.getenv('DB_USER', 'root'),
+        password=os.getenv('DB_PASSWORD', '')  
     )
     cursor = connection.cursor()
 
     # 创建 recommend 数据库
-    cursor.execute("CREATE DATABASE IF NOT EXISTS recommend")
+    cursor.execute(f"CREATE DATABASE IF NOT EXISTS {os.getenv('DB_NAME', 'recommend')}")
     connection.commit()
     connection.close()
 
