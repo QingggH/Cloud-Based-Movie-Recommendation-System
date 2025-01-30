@@ -4,10 +4,9 @@ on:
   push:
     branches:
       - main
-      - ass3
-  # pull_request:
-  #   branches:
-  #     - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
   deploy:
