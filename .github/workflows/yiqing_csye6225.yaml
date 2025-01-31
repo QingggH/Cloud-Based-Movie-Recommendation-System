@@ -119,7 +119,7 @@ jobs:
           cat .env
 
           echo "Copying .env file to EC2..."
-          scp -o StrictHostKeyChecking=no -i ec2_key.pem .env $SSH_USER@$SSH_HOST:/home/ubuntu/app/
+          scp -o StrictHostKeyChecking=no -i ec2_key.pem .env ubuntu@$SSH_HOST:/home/ubuntu/app/
 
       - name: Ingest movies data
         env:
@@ -147,7 +147,7 @@ jobs:
           SSH_USER: ${{ vars.SSH_USER }}
         run: |
           echo "Starting Flask app..."
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem $SSH_USER@$SSH_HOST << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@$SSH_HOST << 'EOF'
             echo "Changing to app directory..."
             cd /home/ubuntu/app
 
