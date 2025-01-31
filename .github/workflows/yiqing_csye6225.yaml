@@ -161,7 +161,7 @@ jobs:
       - name: Setup Variables for Grader Workflow
         run: |
           echo "SSH_HOST=${{ env.PUBLIC_IP }}" > grader-env.txt
-          echo ubuntu >> grader-env.txt
+          echo "WEBAPP_USER=ubuntu" >> grader-env.txt
           echo "WEBAPP_HOST=${{ env.PUBLIC_IP }}" > grader-env.txt
           echo "WEBAPP_USER=${{ vars.SSH_USER }}" >> grader-env.txt
           echo "MYSQL_PRIVATE_IP=${{ env.DATABASE_PRIVATE_IP }}" >> grader-env.txt
