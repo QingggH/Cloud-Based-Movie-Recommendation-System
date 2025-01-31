@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, make_response, request
+import mysql.connector
 from database import get_connection
 
 app = Flask(__name__)
@@ -7,9 +8,15 @@ def create_response(data, status_code=200):
     """Generate a consistent JSON response."""
     return make_response(jsonify(data), status_code)
 
+@app.after_request
+def add_no_cache_header(response):
+    """Ensure all responses include a no-cache header."""
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
 @app.route("/v1/healthcheck", methods=["GET"])
 def healthcheck():
-    """Check database connection status."""
+    """Check the database connection status."""
     if request.args or request.form:
         return create_response({"error": "Bad Request"}, 400)
 
@@ -20,6 +27,8 @@ def healthcheck():
             return create_response({"status": "OK"}, 200)
         else:
             return create_response({"error": "Service Unavailable"}, 503)
+    except mysql.connector.Error:
+        return create_response({"error": "Service Unavailable"}, 503)
     except Exception:
         return create_response({"error": "Service Unavailable"}, 503)
 
@@ -48,9 +57,10 @@ def get_movie(record_id):
         else:
             return create_response({"error": "Bad Request"}, 400)
 
+    except mysql.connector.Error:
+        return create_response({"error": "Service Unavailable"}, 503)
     except Exception:
         return create_response({"error": "Service Unavailable"}, 503)
-
     finally:
         if cursor:
             cursor.close()

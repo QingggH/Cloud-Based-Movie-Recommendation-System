@@ -16,7 +16,6 @@ def get_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 def initialize_database():
-    """初始化数据库和表"""
 
     # Connect to MySQL default database
     connection = mysql.connector.connect(

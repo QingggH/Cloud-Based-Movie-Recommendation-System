@@ -2,11 +2,11 @@ import csv
 from database import get_connection
 
 def ingest_movies(csv_file):
-    """将 movies.csv 数据导入数据库"""
+    """Import movies.csv data into the database"""
     connection = get_connection()
     cursor = connection.cursor()
 
-    # 清空旧表数据
+    # Clear old table data
     cursor.execute("DROP TABLE IF EXISTS movies")
     cursor.execute("""
         CREATE TABLE movies (
@@ -16,7 +16,7 @@ def ingest_movies(csv_file):
         )
     """)
 
-    # 插入新数据
+    # Insert new data
     with open(csv_file, 'r') as file:
         reader = csv.DictReader(file)
         for row in reader:
@@ -26,7 +26,7 @@ def ingest_movies(csv_file):
 
     connection.commit()
     connection.close()
-    print("数据导入成功！")
+    print("Data import successful!")
 
 if __name__ == '__main__':
     ingest_movies('ml-latest-small/movies.csv')
