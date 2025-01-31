@@ -127,7 +127,7 @@ jobs:
           SSH_HOST: ${{ env.PUBLIC_IP }}
           SSH_USER: ${{ vars.SSH_USER }}
         run: |
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem $SSH_USER@$SSH_HOST << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@$SSH_HOST << 'EOF'
             echo "Changing to app directory..."
             cd /home/ubuntu/app
 
