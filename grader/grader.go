@@ -339,7 +339,7 @@ func check4B(token string) bool {
 	}
 
 	fmt.Printf("[TEST] - 4B: Check [GET] /v1/movie?id={id} endpoint with invalid id... \n")
-	resp = endpointChecker("http://localhost:8080/v1/movie?id=999999999999", "GET", token, "", 404, map[string]interface{}{"error": "Movie not found"})
+	resp = endpointChecker("http://localhost:8080/v1/movie?id=999999", "GET", token, "", 404, map[string]interface{}{"error": "Movie not found"})
 	if resp == nil {
 		errorFlag = true
 	}
@@ -443,6 +443,10 @@ func check4E() bool {
 	fmt.Printf("[TEST] - 4E: Check [GET] /v1/link/{id} endpoint without token... \n")
 	if resp := endpointChecker("http://localhost:8080/v1/link/1", "GET", "", "", 401, nil); resp == nil {
 		errorFlag = true
+	}
+
+	if !errorFlag {
+		fmt.Printf("4E test passed.\n")
 	}
 
 	return errorFlag
