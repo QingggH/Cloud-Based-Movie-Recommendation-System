@@ -24,6 +24,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2
 
+
       - name: Delete existing stack
         run: |
           aws cloudformation describe-stacks --stack-name vpc && \
@@ -168,6 +169,7 @@ jobs:
           echo "DATABASE_USER_NAME=${{ secrets.DB_USER }}" >> grader-env.txt
           echo "DATABASE_PASSWORD=${{ secrets.DB_PASSWORD }}" >> grader-env.txt
           echo "MOVIE_INGEST_COMMAND=./run_ingestion.sh" >> grader-env.txt
+
 
       - name: Upload Grader Environment Variables
         uses: actions/upload-artifact@v4

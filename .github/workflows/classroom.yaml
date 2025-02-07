@@ -56,169 +56,66 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
-      - name: Check Assignment 2
-        continue-on-error: true
+      - name: Golang Setup
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.23.3
+
+      - name: Build Grader
+        run: |
+          go build -o auto-grader ./grader/grader.go
+
+      - name: Send Grader to EC2 Instance
+        run: |
+          scp -o StrictHostKeyChecking=no ./auto-grader $WEBAPP_EC2_USER@$WEBAPP_EC2_HOST:./
+
+      - name: Execute Grader
         run: |
           ssh -o StrictHostKeyChecking=no $WEBAPP_EC2_USER@$WEBAPP_EC2_HOST << 'EOF'
 
           echo "Connected to EC2 instance"
 
-          if [ ! -d /tmp/assignment02-grader-result ]; then
-            mkdir /tmp/assignment02-grader-result
+          if [ ! -d /tmp/grader-result ]; then
+            mkdir /tmp/grader-result
           fi
 
-          # Check [GET] /v1/healthcheck
-          curl -vvvv -X GET http://localhost:8080/v1/healthcheck > /tmp/assignment02-grader-result/healthcheck-get-result.txt 2>&1 || true
-
-          # Check [POST] /v1/healthcheck
-          curl -vvvv -X POST http://localhost:8080/v1/healthcheck > /tmp/assignment02-grader-result/healthcheck-post-result.txt 2>&1 || true
-
-          # Check [PUT] /v1/healthcheck
-          curl -vvvv -X PUT http://localhost:8080/v1/healthcheck > /tmp/assignment02-grader-result/healthcheck-put-result.txt 2>&1 || true
-
-          # Check [PATCH] /v1/healthcheck
-          curl -vvvv -X PATCH http://localhost:8080/v1/healthcheck > /tmp/assignment02-grader-result/healthcheck-patch-result.txt 2>&1 || true
-
-          # Check [DELETE] /v1/healthcheck
-          curl -vvvv -X DELETE http://localhost:8080/v1/healthcheck > /tmp/assignment02-grader-result/healthcheck-delete-result.txt 2>&1 || true
-
-          # Check with parameters [GET] /v1/healthcheck?name=John
-          curl -vvvv -X GET http://localhost:8080/v1/healthcheck?name=John > /tmp/assignment02-grader-result/healthcheck-get-params-result.txt 2>&1 || true
-
-          EOF
-
-      - name: Check Assignment 3a - Database Connection
-        continue-on-error: true
-        run: |
-          ssh -o StrictHostKeyChecking=no $WEBAPP_EC2_USER@$WEBAPP_EC2_HOST << 'EOF'
-
-          echo "Connected to EC2 instance"
-
-          if [ ! -d /tmp/assignment03-grader-result ]; then
-            mkdir /tmp/assignment03-grader-result
-          fi
-
-          # Check [GET] /v1/healthcheck
-          curl -vvvv -X GET http://localhost:8080/v1/healthcheck > /tmp/assignment03-grader-result/healthcheck-get-result-with-database-connection.txt 2>&1 || true
-
-          # Disable MySQL connection
-          sudo iptables -A OUTPUT -p tcp --dport 3306 -j DROP
-          sleep 5
-
-          # Check [GET] /v1/healthcheck
-          curl -m 5 -vvvv -X GET http://localhost:8080/v1/healthcheck > /tmp/assignment03-grader-result/healthcheck-get-result-without-database-connection-1.txt 2>&1 || true
-          sleep 5
-          curl -m 5 -vvvv -X GET http://localhost:8080/v1/healthcheck > /tmp/assignment03-grader-result/healthcheck-get-result-without-database-connection-2.txt 2>&1 || true
-
-          # Enable MySQL connection
-          sudo iptables -D OUTPUT -p tcp --dport 3306 -j DROP
-
-          # Check [GET] /v1/healthcheck
-          curl -vvvv -X GET http://localhost:8080/v1/healthcheck > /tmp/assignment03-grader-result/healthcheck-get-result-with-resume-database-connection.txt 2>&1 || true
-
-          EOF
-
-      - name: Check Assignment 3b - /v1/movie/{id}
-        continue-on-error: true
-        run: |
-          ssh -o StrictHostKeyChecking=no $WEBAPP_EC2_USER@$WEBAPP_EC2_HOST << 'EOF'
-
-          echo "Connected to EC2 instance"
-
-          if [ ! -d /tmp/assignment03-grader-result ]; then
-            mkdir /tmp/assignment03-grader-result
-          fi
-
-          # Check [GET] /v1/movie/1
-          # expect 200 OK 
-          # expect response body:
-          # {"movie":{"movie_id":1,"title":"Toy Story (1995)","genres":"Adventure|Animation|Children|Comedy|Fantasy"}}
-          curl -vvvv -X GET http://localhost:8080/v1/movie/1 > /tmp/assignment03-grader-result/movie-1-get-result.txt 2>&1 || true
-
-          # Check [GET] /v1/movie/999999
-          # expect 400 Bad Request
-          curl -vvvv -X GET http://localhost:8080/v1/movie/999999 > /tmp/assignment03-grader-result/movie-not-exist-get-result.txt 2>&1 || true
-
-          # Disable MySQL connection
-          sudo iptables -A OUTPUT -p tcp --dport 3306 -j DROP
-          sleep 5
-          
-          # Check [GET] /v1/movie/1
-          # expect 503 Service Unavailable
-          curl -m 5 -vvvv -X GET http://localhost:8080/v1/movie/1 > /tmp/assignment03-grader-result/movie-without-database-connection-1.txt 2>&1 || true
-          sleep 5
-          curl -m 5 -vvvv -X GET http://localhost:8080/v1/movie/1 > /tmp/assignment03-grader-result/movie-without-database-connection-2.txt 2>&1 || true
-
-          # Enable MySQL connection
-          sudo iptables -D OUTPUT -p tcp --dport 3306 -j DROP
-
-          EOF
-
-      - name: Check Assignment 3c - ingest_movies shell
-        continue-on-error: true
-        run: |
-          scp -o StrictHostKeyChecking=no -r ./grader-env.txt $WEBAPP_EC2_USER@$WEBAPP_EC2_HOST:./
-
-          ssh -o StrictHostKeyChecking=no $WEBAPP_EC2_USER@$WEBAPP_EC2_HOST << 'EOF'
-          
-          echo "Connected to EC2 instance"
-
-          source grader-env.txt
-
-          sudo apt install mysql-client-core-8.0 -y
-
-          echo "Get row count from movies table"
-
-          echo "-- testing ---"
-          echo "mysql -h $MYSQL_PRIVATE_IP -u $DATABASE_USER_NAME -p $DATABASE_PASSWORD -D recommend -e 'SELECT COUNT(*) FROM movies;'"
-
-          row_count=$(mysql -h $MYSQL_PRIVATE_IP -u $DATABASE_USER_NAME -p$DATABASE_PASSWORD -D recommend -e "SELECT COUNT(*) FROM movies;" -N | tail -n 1)
-          echo "Row count: $row_count"
-          
-          $MOVIE_INGEST_COMMAND
-
-          echo "Get row count from movies table"
-          new_row_count=$(mysql -h $MYSQL_PRIVATE_IP -u $DATABASE_USER_NAME -p$DATABASE_PASSWORD -D recommend -e "SELECT COUNT(*) FROM movies;" -N | tail -n 1)
-
-          # expect there should be same row count
-          if [ "$row_count" -eq "$new_row_count" ]; then
-            echo "Row count is the same" > /tmp/assignment03-grader-result/ingest-movies-command-check-result.txt
-          else
-            echo "Row count is different" > /tmp/assignment03-grader-result/ingest-movies-command-check-result.txt
-          fi
+          ./auto-grader > /tmp/grader-result/result.txt
 
           EOF
 
       - name: Copy Grading Result
         run: |
-          scp -o StrictHostKeyChecking=no -r $WEBAPP_EC2_USER@$WEBAPP_EC2_HOST:/tmp/assignment02-grader-result ./
-          scp -o StrictHostKeyChecking=no -r $WEBAPP_EC2_USER@$WEBAPP_EC2_HOST:/tmp/assignment03-grader-result ./
+          scp -o StrictHostKeyChecking=no -r $WEBAPP_EC2_USER@$WEBAPP_EC2_HOST:/tmp/grader-result/result.txt ./grader_result.txt
           echo "Grading result copied to local machine"
 
-      - name: Check Ok Status
-        id: check-ok-status
+      - name: Show Grading Result
+        run: |
+          cat ./grader_result.txt
+
+      - name: Grade 2A - Check Ok Status
+        id: grade-2a
         uses: classroom-resources/autograding-command-grader@v1
         with:
           test-name: Check Ok Status
-          command: python3 -m grader.assignment2.check_ok_status
+          command: python3 ./grader/result_checker.py 2A
           timeout: 10
           max-score: 10
 
-      - name: Check Wrong Method
-        id: check-wrong-method
-        uses: classroom-resources/autograding-command-grader@v1
-        with:
-          test-name: Check Wrong Method
-          command: python3 -m grader.assignment2.check_wrong_method
-          timeout: 10
-          max-score: 10
-
-      - name: Check No Parameter
-        id: check-no-parameter
+      - name: Grade 2B - Check No Parameter
+        id: grade-2b
         uses: classroom-resources/autograding-command-grader@v1
         with:
           test-name: Check No Parameter
-          command: python3 -m grader.assignment2.check_no_param
+          command: python3 ./grader/result_checker.py 2B
+          timeout: 10
+          max-score: 10
+
+      - name: Grade 2C - Check Wrong Method
+        id: grade-2c
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Check Wrong Method
+          command: python3 ./grader/result_checker.py 2C
           timeout: 10
           max-score: 10
 
@@ -227,39 +124,70 @@ jobs:
         uses: classroom-resources/autograding-command-grader@v1
         with:
           test-name: Grade 3A - Database Connection
-          command: python3 -m grader.assignment3.check_3a_database_connection
+          command: python3 ./grader/result_checker.py 3A
           timeout: 10
           max-score: 10
 
-      - name: Grade 3B - /v1/movie/{id}
-        id: grade-3b
+      - name: Grade 4A - Authenticate Endpoint
+        id: grade-4a
         uses: classroom-resources/autograding-command-grader@v1
         with:
-          test-name: Grade 3B - /v1/movie/{id}
-          command: python3 -m grader.assignment3.check_3b_movie_endpoint
+          test-name: Grade 4A - Authenticate Endpoint
+          command: python3 ./grader/result_checker.py 4A
           timeout: 10
           max-score: 10
 
-      - name: Grade 3C - ingest_movies shell
-        id: grade-3c
+      - name: Grade 4B - Movie Endpoint
+        id: grade-4b
         uses: classroom-resources/autograding-command-grader@v1
         with:
-          test-name: Grade 3C - ingest_movies shell
-          command: python3 -m grader.assignment3.check_3c_movie_ingest_command
+          test-name: Grade 4B - Movie Endpoint
+          command: python3 ./grader/result_checker.py 4B
           timeout: 10
           max-score: 10
+
+      - name: Grade 4C - Rating Endpoint
+        id: grade-4c
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Grade 4C - Rating Endpoint
+          command: python3 ./grader/result_checker.py 4C
+          timeout: 10
+          max-score: 10
+
+      - name: Grade 4D - Link Endpoint
+        id: grade-4d
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Grade 4D - Link Endpoint
+          command: python3 ./grader/result_checker.py 4D
+          timeout: 10
+          max-score: 10
+
+      - name: Grade 4E - Unauthorized Endpoint
+        id: grade-4e
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Grade 4E - Unauthorized Endpoint
+          command: python3 ./grader/result_checker.py 4E
+          timeout: 10
+          max-score: 10
+        
 
       - name: Autograding Reporter
         uses: classroom-resources/autograding-grading-reporter@v1
         env:
-          CHECK-OK-STATUS_RESULTS: "${{steps.check-ok-status.outputs.result}}"
-          CHECK-WRONG-METHOD_RESULTS: "${{steps.check-wrong-method.outputs.result}}"
-          CHECK-NO-PARAMETER_RESULTS: "${{steps.check-no-parameter.outputs.result}}"
+          GRADE-2A_RESULTS: "${{steps.grade-2a.outputs.result}}"
+          GRADE-2B_RESULTS: "${{steps.grade-2b.outputs.result}}"
+          GRADE-2C_RESULTS: "${{steps.grade-2c.outputs.result}}"
           GRADE-3A_RESULTS: "${{steps.grade-3a.outputs.result}}"
-          GRADE-3B_RESULTS: "${{steps.grade-3b.outputs.result}}"
-          GRADE-3C_RESULTS: "${{steps.grade-3c.outputs.result}}"
+          GRADE-4A_RESULTS: "${{steps.grade-4a.outputs.result}}"
+          GRADE-4B_RESULTS: "${{steps.grade-4b.outputs.result}}"
+          GRADE-4C_RESULTS: "${{steps.grade-4c.outputs.result}}"
+          GRADE-4D_RESULTS: "${{steps.grade-4d.outputs.result}}"
+          GRADE-4E_RESULTS: "${{steps.grade-4e.outputs.result}}"
         with:
-          runners: check-ok-status,check-wrong-method,check-no-parameter,grade-3a,grade-3b,grade-3c
+          runners: grade-2a, grade-2b, grade-2c, grade-3a, grade-4a, grade-4b, grade-4c, grade-4d, grade-4e
 
       - name: Configure AWS Credentialsg
         uses: aws-actions/configure-aws-credentials@v2
