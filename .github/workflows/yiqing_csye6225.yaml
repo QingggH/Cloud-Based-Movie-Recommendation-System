@@ -1,5 +1,5 @@
 name: Continuous Deploy
-#
+
 on:
   push:
     branches:
@@ -10,103 +10,167 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to EC2
     runs-on: ubuntu-latest
     environment: AWS_DEPLOYMENT
 
     steps:
-      # Step 1: Checkout my code from GitHub
-      - name: Checkout Code
-        uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      # Step 2: Create an SSH key file from GitHub secret
-      - name: Create SSH key file
-        run: |
-          echo "${{ secrets.EC2_SSH_KEY }}" > ec2_key.pem
-          chmod 600 ec2_key.pem
-
-      # Step 3: Configure AWS CLI
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-west-2
 
-      # Step 4: Check EC2 Instance State
-      - name: Check EC2 Instance State
-        id: check_state
-        run: |
-          INSTANCE_ID=i-039c1f8227270d4e5
-          INSTANCE_STATE=$(aws ec2 describe-instances \
-            --instance-ids "$INSTANCE_ID" \
-            --query 'Reservations[*].Instances[*].State.Name' \
-            --output text)
-          echo "INSTANCE_STATE=$INSTANCE_STATE" >> $GITHUB_ENV
 
-      # Step 5: Start EC2 Instance if it is stopped
-      - name: Start EC2 Instance (if stopped)
-        if: env.INSTANCE_STATE == 'stopped'
+      - name: Delete existing stack
         run: |
-          aws ec2 start-instances --instance-ids i-039c1f8227270d4e5
-          echo "Waiting for EC2 instance to start..."
-          aws ec2 wait instance-running --instance-ids i-039c1f8227270d4e5
+          aws cloudformation describe-stacks --stack-name vpc && \
+          aws cloudformation delete-stack --stack-name vpc && \
+          aws cloudformation wait stack-delete-complete --stack-name vpc || \
+          echo "No existing stack to delete."
 
-      # Step 6: Fetch the EC2 Public IP
-      - name: Get EC2 Public IP
-        id: ec2info
+      - name: Deploy CloudFormation Stack, Create VPC and Subnets
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
         run: |
-          INSTANCE_ID=i-039c1f8227270d4e5
-          PUBLIC_IP=$(aws ec2 describe-instances \
-            --instance-ids "$INSTANCE_ID" \
-            --query 'Reservations[*].Instances[*].PublicIpAddress' \
-            --output text)
-          echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
+          aws cloudformation create-stack \
+            --stack-name vpc \
+            --template-body file://vpc.yaml \
+            --parameters \
+              ParameterKey=DBUser,ParameterValue=$DB_USER \
+              ParameterKey=DBPassword,ParameterValue=$DB_PASSWORD \
+              ParameterKey=DBName,ParameterValue=$DB_NAME \
+            --capabilities CAPABILITY_NAMED_IAM
 
-      # Step 7: Stop running the previous app and remove old files
-      - name: Stop old application
+      - name: Wait for stack creation to complete
         run: |
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.PUBLIC_IP }} <<EOF
-            # Kill the running Python process if any
-            pkill -f test.py || true
-            
-            # Remove old application directory
-            rm -rf /home/ubuntu/my_flask_app
-          EOF
+          aws cloudformation wait stack-create-complete --stack-name vpc
 
-      # Step 8: Copy the local code to EC2
-      - name: Copy Code to EC2
+      - name: Get stack outputs
+        id: get-outputs
         run: |
-          scp -o StrictHostKeyChecking=no -i ec2_key.pem -r ./* ubuntu@${{ env.PUBLIC_IP }}:/home/ubuntu/my_flask_app
+          aws cloudformation describe-stacks --stack-name vpc --query "Stacks[0].Outputs" > stack-outputs.json
+          cat stack-outputs.json
 
-      # Step 9: SSH into EC2, install dependencies, and run app
-      - name: Install & Run Application
+      - name: Extract WebApp Public IP and Database Private IP
+        id: extract_ips
         run: |
-          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ env.PUBLIC_IP }} <<EOF
-            # Update system packages and install Python
+          WEBAPP_PUBLIC_IP=$(jq -r '.[] | select(.OutputKey=="WebAppPublicIP") | .OutputValue' stack-outputs.json)
+          DATABASE_PRIVATE_IP=$(jq -r '.[] | select(.OutputKey=="DatabasePrivateIP") | .OutputValue' stack-outputs.json)
+          echo "WebApp Public IP: $WEBAPP_PUBLIC_IP"
+          echo "Database Private IP: $DATABASE_PRIVATE_IP"
+          echo "PUBLIC_IP=$WEBAPP_PUBLIC_IP" >> $GITHUB_ENV
+          echo "DATABASE_PRIVATE_IP=$DATABASE_PRIVATE_IP" >> $GITHUB_ENV
+
+      - name: Use WebApp Public IP and Database Private IP
+        run: |
+          echo "The WebApp Public IP is ${{ env.PUBLIC_IP }}"
+          echo "The Database Private IP is ${{ env.DATABASE_PRIVATE_IP }}"
+
+      - name: Setup environment on EC2
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SSH_HOST: ${{ env.PUBLIC_IP }}
+          # SSH_USER: ${{ vars.SSH_USER }}
+        run: |
+          echo "Copy SSH key to runner"
+          echo "$EC2_SSH_KEY" > ec2_key.pem
+          chmod 600 ec2_key.pem
+
+          echo "Copying all files from root to EC2..."
+          scp -o StrictHostKeyChecking=no -i ec2_key.pem -r ./* ubuntu@$SSH_HOST:/home/ubuntu/app/
+
+          echo "Setting up environment on EC2..."
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@$SSH_HOST << 'EOF'
+            echo "Changing to app directory..."
+            cd /home/ubuntu/app
+
+            echo "Installing necessary packages..."
             sudo apt-get update
-            sudo apt-get install -y python3 python3-venv python3-pip
+            sudo apt-get install -y python3-venv python3-pip
 
-            cd /home/ubuntu/my_flask_app
-
-            # Create and activate a virtual environment
+            echo "Creating and activating virtual environment..."
             python3 -m venv venv
             source venv/bin/activate
 
-            # Install dependencies
+            echo "Installing required Python packages..."
             pip install -r requirements.txt
 
-            # Run the Python script in background
-            nohup python3 test.py > test.log 2>&1 &
+            echo "Setup completed."
           EOF
 
-      # Step 10: Create environment file for the grader
+      - name: Create and copy .env file to EC2
+        env:
+          SSH_HOST: ${{ env.PUBLIC_IP }}
+          SSH_USER: ${{ vars.SSH_USER }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: |
+          echo "Creating .env file..."
+          echo "DB_HOST=${{ env.DATABASE_PRIVATE_IP }}" > .env
+          echo "DB_USER=${{ env.DB_USER }}" >> .env
+          echo "DB_PASSWORD=${{ env.DB_PASSWORD }}" >> .env
+          echo "DB_NAME=${{ env.DB_NAME }}" >> .env
+          cat .env
+
+          echo "Copying .env file to EC2..."
+          scp -o StrictHostKeyChecking=no -i ec2_key.pem .env ubuntu@$SSH_HOST:/home/ubuntu/app/
+
+      - name: Ingest movies data
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SSH_HOST: ${{ env.PUBLIC_IP }}
+          SSH_USER: ${{ vars.SSH_USER }}
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@$SSH_HOST << 'EOF'
+            echo "Changing to app directory..."
+            cd /home/ubuntu/app
+
+            echo "Activating virtual environment..."
+            source venv/bin/activate
+
+            echo "Running ingestion script..."
+            python movies_ingest.py
+
+            echo "Ingestion completed."
+          EOF
+
+      - name: launch Web App to EC2
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SSH_HOST: ${{ env.PUBLIC_IP }}
+          SSH_USER: ${{ vars.SSH_USER }}
+        run: |
+          echo "Starting Flask app..."
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@$SSH_HOST << 'EOF'
+            echo "Changing to app directory..."
+            cd /home/ubuntu/app
+
+            echo "Activating virtual environment..."
+            source venv/bin/activate
+
+            nohup python movie_app.py > app.log 2>&1 &
+            exit
+          EOF
+
       - name: Setup Variables for Grader Workflow
         run: |
           echo "SSH_HOST=${{ env.PUBLIC_IP }}" > grader-env.txt
-          echo "SSH_USER=ubuntu" >> grader-env.txt
 
-      # Step 11: Upload the environment file as an artifact
+          echo "WEBAPP_HOST=${{ env.PUBLIC_IP }}" > grader-env.txt
+          echo "WEBAPP_USER=ubuntu" >> grader-env.txt
+          echo "MYSQL_PRIVATE_IP=${{ env.DATABASE_PRIVATE_IP }}" >> grader-env.txt
+          echo "DATABASE_USER_NAME=${{ secrets.DB_USER }}" >> grader-env.txt
+          echo "DATABASE_PASSWORD=${{ secrets.DB_PASSWORD }}" >> grader-env.txt
+          echo "MOVIE_INGEST_COMMAND=./run_ingestion.sh" >> grader-env.txt
+
+
       - name: Upload Grader Environment Variables
         uses: actions/upload-artifact@v4
         with:
